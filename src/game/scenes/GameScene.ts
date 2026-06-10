@@ -20,16 +20,19 @@ export class GameScene extends Scene {
   private g: PitzGame;
   private view: BoardView;
 
-  // HUD text nodes
+  // HUD
   private levelText!: Text;
   private movesText!: Text;
   private timeText!: Text;
-  private lightsText!: Text;
-  private batteryBar!: Graphics;
-  private batteryWrap!: Container;
+  private statusText!: Text;
+  private objectiveText!: Text;
+  private revealWrap!: Container;
+  private revealBar!: Graphics;
+  private actionBtn!: TextButton;
 
   private interstitial: Container | null = null;
   private moveTimer = 0;
+  private beaconCleared = false;
   private keyHandler?: (e: KeyboardEvent) => void;
 
   constructor(game: Game, mode: ModeId) {
@@ -50,65 +53,67 @@ export class GameScene extends Scene {
   private buildHud(): void {
     const px = 1014;
     const pw = 250;
-    const panel = new Graphics()
-      .roundRect(px, 20, pw, STAGE_H - 40, 14)
-      .fill({ color: 0x080c06, alpha: 0.72 })
-      .stroke({ color: COLORS.panelEdge, width: 1.5, alpha: 0.8 });
-    this.addChild(panel);
+    this.addChild(
+      new Graphics()
+        .roundRect(px, 20, pw, STAGE_H - 40, 14)
+        .fill({ color: 0x080c06, alpha: 0.72 })
+        .stroke({ color: COLORS.panelEdge, width: 1.5, alpha: 0.8 }),
+    );
 
     const ix = px + 22;
     const title = new Text({ text: "PITZ!", style: vary(styles.heading, { fontSize: 34, fill: COLORS.accent }) });
-    title.position.set(ix, 40);
+    title.position.set(ix, 38);
     this.addChild(title);
-
-    const mode = new Text({ text: this.mode === "classic" ? "Classic" : "Modern", style: styles.hudDim });
-    mode.position.set(ix, 82);
-    this.addChild(mode);
+    const modeLabel = new Text({ text: this.mode === "classic" ? "Classic" : "Modern", style: styles.hudDim });
+    modeLabel.position.set(ix, 80);
+    this.addChild(modeLabel);
 
     this.levelText = new Text({ text: "", style: vary(styles.hud, { fontSize: 20 }) });
-    this.levelText.position.set(ix, 128);
+    this.levelText.position.set(ix, 122);
     this.addChild(this.levelText);
-
     this.movesText = new Text({ text: "", style: vary(styles.hud, { fontSize: 20 }) });
-    this.movesText.position.set(ix, 162);
+    this.movesText.position.set(ix, 154);
     this.addChild(this.movesText);
-
     this.timeText = new Text({ text: "", style: vary(styles.hud, { fontSize: 20 }) });
-    this.timeText.position.set(ix, 196);
+    this.timeText.position.set(ix, 186);
     this.addChild(this.timeText);
 
-    // Battery (Modern only)
-    this.batteryWrap = new Container();
-    this.batteryWrap.position.set(ix, 250);
-    const batLabel = new Text({ text: "Light", style: styles.hudDim });
-    this.batteryWrap.addChild(batLabel);
-    const batFrame = new Graphics().roundRect(0, 26, 206, 20, 5).stroke({ color: COLORS.panelEdge, width: 2 });
-    this.batteryWrap.addChild(batFrame);
-    this.batteryBar = new Graphics();
-    this.batteryWrap.addChild(this.batteryBar);
-    this.addChild(this.batteryWrap);
-    this.batteryWrap.visible = this.g.isBattery;
+    this.objectiveText = new Text({ text: "", style: vary(styles.hud, { fontSize: 18 }) });
+    this.objectiveText.position.set(ix, 226);
+    this.objectiveText.visible = this.g.rule.objective;
+    this.addChild(this.objectiveText);
 
-    this.lightsText = new Text({ text: "", style: vary(styles.hud, { fontSize: 20 }) });
-    this.lightsText.position.set(ix, this.g.isBattery ? 312 : 250);
-    this.addChild(this.lightsText);
+    // Reveal countdown bar (Modern fade).
+    this.revealWrap = new Container();
+    this.revealWrap.position.set(ix, 270);
+    const label = new Text({ text: "Memorize the route!", style: vary(styles.hudDim, { fontSize: 14, fill: COLORS.battery }) });
+    this.revealWrap.addChild(label);
+    this.revealWrap.addChild(new Graphics().roundRect(0, 24, 206, 16, 4).stroke({ color: COLORS.panelEdge, width: 2 }));
+    this.revealBar = new Graphics();
+    this.revealWrap.addChild(this.revealBar);
+    this.addChild(this.revealWrap);
+    this.revealWrap.visible = false;
 
-    // Buttons
-    const lightsBtn = new TextButton("Lights (L)", 206, 46, () => this.toggleLights(), true);
-    lightsBtn.position.set(ix, 372);
-    this.addChild(lightsBtn);
+    this.statusText = new Text({ text: "", style: vary(styles.hud, { fontSize: 18 }) });
+    this.statusText.position.set(ix, 320);
+    this.addChild(this.statusText);
+
+    // Action button: Classic toggles lights; Modern ends the reveal early.
+    this.actionBtn = new TextButton(this.mode === "classic" ? "Lights (L)" : "I'm ready  ▸", 206, 46, () => this.action(), true);
+    this.actionBtn.position.set(ix, 372);
+    this.addChild(this.actionBtn);
 
     const menuBtn = new TextButton("Menu", 206, 40, () => this.game.setScene(new MenuScene(this.game)));
     menuBtn.position.set(ix, 430);
     this.addChild(menuBtn);
 
-    // Controls hint
-    const hint = new Text({
-      text: "Arrow keys / WASD — move\nL or Space — lights\n\nYou can only move with\nthe lights OFF. Light it up,\nmemorize the pits, then\ncross in the dark.",
-      style: vary(styles.hudDim, { fontSize: 14, lineHeight: 20 }),
-    });
-    hint.position.set(ix, 504);
-    this.addChild(hint);
+    const hint =
+      this.mode === "classic"
+        ? "Arrow keys / WASD — move\nL or Space — lights\n\nYou can only move with the\nlights OFF. Light it up,\nmemorize the pits, then\ncross in the dark."
+        : "Arrow keys / WASD — move\nSpace — start early\n\nThe board lights up, then\nfades. Memorize the route —\nthere's no second look.\nReach the beacon, then exit.";
+    const hintText = new Text({ text: hint, style: vary(styles.hudDim, { fontSize: 14, lineHeight: 20 }) });
+    hintText.position.set(ix, 500);
+    this.addChild(hintText);
   }
 
   private refreshHud(): void {
@@ -117,15 +122,35 @@ export class GameScene extends Scene {
     this.timeText.visible = this.g.rule.scoring;
     if (this.g.rule.scoring) this.timeText.text = `Time: ${fmtTime(this.g.elapsedMs)}`;
 
-    this.lightsText.text = this.g.lightsOn ? "Lights: ON" : "Lights: off";
-    this.lightsText.style.fill = this.g.lightsOn ? COLORS.battery : COLORS.textDim;
-
-    if (this.g.isBattery) {
-      const pct = this.g.batteryPct;
-      this.batteryBar.clear();
-      const col = pct < 0.25 ? COLORS.batteryLow : COLORS.battery;
-      this.batteryBar.roundRect(0, 26, Math.max(0, 206 * pct), 20, 5).fill({ color: col });
+    if (this.g.rule.objective) {
+      const got = this.g.objectiveReached;
+      this.objectiveText.text = got ? "Beacon ✓ — reach the exit" : "Find the beacon";
+      this.objectiveText.style.fill = got ? COLORS.accent : 0x39e6ff;
     }
+
+    // Reveal bar + status line.
+    if (this.g.isRevealing) {
+      this.revealWrap.visible = true;
+      const frac = this.revealMs > 0 ? this.g.revealLeft / this.revealMs : 0;
+      this.revealBar.clear().roundRect(0, 24, Math.max(0, 206 * frac), 16, 4).fill({ color: COLORS.battery });
+      this.statusText.text = "";
+    } else {
+      this.revealWrap.visible = false;
+      if (this.mode === "classic") {
+        this.statusText.text = this.g.lightsOn ? "Lights: ON" : "Lights: off";
+        this.statusText.style.fill = this.g.lightsOn ? COLORS.battery : COLORS.textDim;
+      } else {
+        this.statusText.text = "Dark — go!";
+        this.statusText.style.fill = COLORS.textDim;
+      }
+    }
+
+    // Action button visibility: Modern only shows it during the reveal.
+    this.actionBtn.visible = this.mode === "classic" || this.g.isRevealing;
+  }
+
+  private get revealMs(): number {
+    return this.g.revealMs;
   }
 
   // --- Input ----------------------------------------------------------------
@@ -144,17 +169,33 @@ export class GameScene extends Scene {
         case "ArrowDown": case "s": case "S": this.tryMove("south"); break;
         case "ArrowLeft": case "a": case "A": this.tryMove("west"); break;
         case "ArrowRight": case "d": case "D": this.tryMove("east"); break;
-        case "l": case "L": case " ": e.preventDefault(); this.toggleLights(); break;
+        case "l": case "L": case " ": e.preventDefault(); this.action(); break;
         default: return;
       }
     };
     window.addEventListener("keydown", this.keyHandler);
   }
 
+  /** Action button / Space / L: toggle lights (Classic) or end the reveal (Modern). */
+  private action(): void {
+    if (this.mode === "classic") {
+      const was = this.g.lightsOn;
+      this.g.toggleLights();
+      if (this.g.lightsOn !== was) {
+        audio.play(this.g.lightsOn ? "lightOn" : "lightOff");
+        this.refreshHud();
+      }
+    } else if (this.g.isRevealing) {
+      this.g.cutReveal();
+      audio.play("lightOff");
+      this.refreshHud();
+    }
+  }
+
   private tryMove(dir: Direction): void {
     if (this.moveTimer > 0) return;
-    if (this.g.lightsOn) {
-      audio.play("blocked");
+    if (!this.g.canMoveNow) {
+      if (this.g.lightsOn) audio.play("blocked"); // classic: lights are on
       return;
     }
     const before = this.g.status;
@@ -164,36 +205,21 @@ export class GameScene extends Scene {
       this.view.setPlayer(this.g.playerRow, this.g.playerCol);
       if (this.g.status === "dead") audio.play("death");
       else if (this.g.status === "won" || this.g.status === "complete") audio.play("win");
+      else if (this.g.objectiveReached && !this.beaconCleared) audio.play("lightOn");
       else audio.play("step");
       this.refreshHud();
       if (this.g.status !== before) this.handleStatus();
     }
   }
 
-  private toggleLights(): void {
-    const was = this.g.lightsOn;
-    this.g.toggleLights();
-    if (this.g.lightsOn !== was) {
-      audio.play(this.g.lightsOn ? "lightOn" : "lightOff");
-      this.view.setLights(this.g.lightsOn);
-      this.refreshHud();
-    }
-  }
-
   // --- Status flow ----------------------------------------------------------
 
   private handleStatus(): void {
-    if (this.g.status === "dead") {
-      this.toEnd();
-    } else if (this.g.status === "complete") {
-      this.toEnd();
-    } else if (this.g.status === "won") {
-      this.showInterstitial();
-    }
+    if (this.g.status === "dead" || this.g.status === "complete") this.toEnd();
+    else if (this.g.status === "won") this.showInterstitial();
   }
 
   private toEnd(): void {
-    // Brief pause so the death/win sound and final frame register.
     window.setTimeout(() => this.game.setScene(new EndScene(this.game, this.mode, this.g)), 650);
   }
 
@@ -227,6 +253,7 @@ export class GameScene extends Scene {
     }
     this.g.nextLevel();
     this.view.setBoard(this.g.board);
+    this.beaconCleared = false;
     this.refreshHud();
   }
 
@@ -235,10 +262,17 @@ export class GameScene extends Scene {
   override update(dtMs: number): void {
     if (this.moveTimer > 0) this.moveTimer = Math.max(0, this.moveTimer - dtMs);
     if (!this.interstitial) this.g.tick(dtMs);
+
+    this.view.setLightLevel(this.g.lightLevel);
     this.view.tick(dtMs);
-    // Battery may auto-cut the lights; keep the view + HUD in sync.
-    if (!this.g.lightsOn && this.view) this.view.setLights(false);
-    if (this.g.rule.scoring || this.g.isBattery) this.refreshHud();
+
+    // Collect the beacon visually the moment it's reached.
+    if (this.g.objectiveReached && !this.beaconCleared) {
+      this.view.clearObjective();
+      this.beaconCleared = true;
+    }
+
+    this.refreshHud();
   }
 
   override dispose(): void {

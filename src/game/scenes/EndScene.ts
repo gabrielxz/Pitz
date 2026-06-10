@@ -33,7 +33,7 @@ export class EndScene extends Scene {
       lines.push(dead ? `Reached level ${g.levelIndex + 1} of ${g.levelCount}` : `All ${g.levelCount} levels cleared`);
     }
     lines.push(`${g.totalMoves} moves`);
-    if (g.rule.scoring) lines.push(`Time ${fmtTime(g.elapsedMs)} · ${g.peeks} peeks`);
+    if (g.rule.scoring) lines.push(`Time ${fmtTime(g.elapsedMs)}`);
 
     const sub = new Text({ text: lines.join("\n"), style: vary(styles.hud, { align: "center", lineHeight: 28 }) });
     sub.anchor.set(0.5, 0);

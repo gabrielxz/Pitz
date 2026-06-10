@@ -7,20 +7,23 @@ import { COLORS } from "../theme";
 // Renders a Pitz board with the original's tilted-3D feel, faked in 2D:
 //  - a trapezoid projection (far rows smaller + narrower) gives the perspective,
 //  - the authentic grass/pit textures tile the ground,
-//  - a soft radial "spotlight" masks everything outside a pool of light, which
-//    both creates the glowing-oval-in-the-void look and drives the lights
-//    mechanic (small pool around the player in the dark; whole board when lit).
+//  - a soft radial "spotlight" masks everything outside a pool of light. Its
+//    radius is driven by a 0..1 light level: 1 floods the whole board (the
+//    opening reveal / Classic lights-on), 0 collapses to a small follow-pool.
 
 const AREA = { cx: 588, cy: 392, w: 820, h: 560 };
-const BACK_SCALE = 0.6; // far (top) row size multiplier
-const FRONT_SCALE = 1.0; // near (bottom) row
-const SQUASH = 0.64; // vertical compression = camera tilt
+const BACK_SCALE = 0.6;
+const FRONT_SCALE = 1.0;
+const SQUASH = 0.64;
+const BEACON = 0x39e6ff;
 
 interface Proj {
   x: number;
   y: number;
   scale: number;
 }
+
+const smoothstep = (t: number): number => t * t * (3 - 2 * t);
 
 let gradientTex: Texture | null = null;
 function lightTexture(): Texture {
@@ -43,6 +46,7 @@ export class BoardView extends Container {
   private board: Board;
   private content = new Container();
   private tileLayer = new Container();
+  private objectiveLayer = new Container();
   private player = new Graphics();
   private light = new Sprite(lightTexture());
 
@@ -50,11 +54,14 @@ export class BoardView extends Container {
   private boardPixW = 0;
   private boardPixH = 0;
 
-  /** Current (animated) spotlight state. */
+  // Spotlight state (animated).
   private curDiam = 0;
   private curX = AREA.cx;
   private curY = AREA.cy;
-  private litTarget = false;
+  private curLevel = 0;
+  private targetLevel = 0;
+  private playerScreenX = AREA.cx;
+  private playerScreenY = AREA.cy;
 
   constructor(board: Board) {
     super();
@@ -62,6 +69,7 @@ export class BoardView extends Container {
 
     this.addChild(this.content);
     this.content.addChild(this.tileLayer);
+    this.content.addChild(this.objectiveLayer);
     this.content.addChild(this.player);
 
     this.light.anchor.set(0.5);
@@ -72,8 +80,8 @@ export class BoardView extends Container {
     this.buildTiles();
 
     const p = this.project(board.start.row, board.start.col);
-    this.curX = p.x;
-    this.curY = p.y;
+    this.curX = this.playerScreenX = p.x;
+    this.curY = this.playerScreenY = p.y;
     this.curDiam = this.darkDiameter();
   }
 
@@ -86,7 +94,6 @@ export class BoardView extends Container {
 
   private layout(): void {
     const { w, h } = this.board;
-    // Unit dimensions at cellBase = 1.
     let unitH = 0;
     for (let r = 0; r < h; r++) unitH += this.rowScale(r) * SQUASH;
     const unitW = FRONT_SCALE * w;
@@ -95,7 +102,6 @@ export class BoardView extends Container {
     this.boardPixH = this.cellBase * unitH;
   }
 
-  /** Center of a tile in stage space, plus its row scale. */
   private project(row: number, col: number): Proj {
     const { w } = this.board;
     const topY = AREA.cy - this.boardPixH / 2;
@@ -109,44 +115,57 @@ export class BoardView extends Container {
 
   private buildTiles(): void {
     this.tileLayer.removeChildren();
+    this.objectiveLayer.removeChildren();
     const { w, h } = this.board;
     for (let r = 0; r < h; r++) {
       for (let c = 0; c < w; c++) {
         const cell = this.board.cells[r][c];
         const isPit = cell === Cell.Pit;
-        const isFinish = cell === Cell.Finish;
         const sp = new Sprite(isPit ? tex("pit") : tex("grass"));
         sp.anchor.set(0.5);
         const p = this.project(r, c);
-        const tw = this.cellBase * p.scale * 1.04;
-        const th = this.cellBase * p.scale * SQUASH * 1.04;
-        sp.width = tw;
-        sp.height = th;
+        sp.width = this.cellBase * p.scale * 1.04;
+        sp.height = this.cellBase * p.scale * SQUASH * 1.04;
         sp.position.set(p.x, p.y);
-        if (isFinish) sp.tint = COLORS.finish;
+        if (cell === Cell.Finish) sp.tint = COLORS.finish;
         this.tileLayer.addChild(sp);
       }
     }
-    // Player is drawn on top via setPlayer(), called right after construction.
+    if (this.board.objective) this.drawBeacon();
     this.setPlayer(this.board.start.row, this.board.start.col);
+  }
+
+  private drawBeacon(): void {
+    const o = this.board.objective!;
+    const p = this.project(o.row, o.col);
+    const u = this.cellBase * p.scale;
+    const g = new Graphics();
+    // Glowing diamond pylon.
+    g.poly([p.x, p.y - u * 0.6, p.x + u * 0.34, p.y, p.x, p.y + u * 0.34, p.x - u * 0.34, p.y]).fill({ color: BEACON, alpha: 0.28 });
+    g.poly([p.x, p.y - u * 0.42, p.x + u * 0.2, p.y, p.x, p.y + u * 0.22, p.x - u * 0.2, p.y]).fill({ color: BEACON, alpha: 0.95 });
+    g.circle(p.x, p.y, u * 0.08).fill({ color: 0xffffff });
+    this.objectiveLayer.addChild(g);
+  }
+
+  /** Hide the beacon once it's been collected. */
+  clearObjective(): void {
+    this.objectiveLayer.removeChildren();
   }
 
   // --- Player ---------------------------------------------------------------
 
   setPlayer(row: number, col: number): void {
     const p = this.project(row, col);
-    const u = this.cellBase * p.scale; // tile unit
+    const u = this.cellBase * p.scale;
     const g = this.player;
     g.clear();
 
-    // White platform under the figure (a flattened tile-shaped disc).
     g.ellipse(p.x, p.y, u * 0.46, u * 0.46 * SQUASH).fill({ color: COLORS.platform, alpha: 0.95 });
 
-    // Stick figure (red), drawn standing on the platform.
     const col0 = COLORS.player;
     const cx = p.x;
-    const baseY = p.y + u * 0.05 * SQUASH; // feet near platform center
-    const sc = u * 0.5; // figure height unit
+    const baseY = p.y + u * 0.05 * SQUASH;
+    const sc = u * 0.5;
     const lw = Math.max(2, u * 0.06);
     const headR = sc * 0.16;
     const headCY = baseY - sc * 0.92;
@@ -154,26 +173,16 @@ export class BoardView extends Container {
     const hipY = baseY - sc * 0.34;
     const shoulderY = baseY - sc * 0.62;
 
-    // Head
     g.circle(cx, headCY, headR).stroke({ color: col0, width: lw }).fill({ color: 0x220000, alpha: 0.001 });
-    // Body
     g.moveTo(cx, neckY).lineTo(cx, hipY).stroke({ color: col0, width: lw });
-    // Legs
     g.moveTo(cx - sc * 0.22, baseY).lineTo(cx, hipY).lineTo(cx + sc * 0.22, baseY).stroke({ color: col0, width: lw });
-    // Arms
     g.moveTo(cx - sc * 0.26, shoulderY + sc * 0.14).lineTo(cx, shoulderY).lineTo(cx + sc * 0.26, shoulderY + sc * 0.14).stroke({ color: col0, width: lw });
 
-    // Keep the lit pool following the player when dark.
-    if (!this.litTarget) {
-      this.targetX = p.x;
-      this.targetY = p.y;
-    }
+    this.playerScreenX = p.x;
+    this.playerScreenY = p.y;
   }
 
   // --- Spotlight ------------------------------------------------------------
-
-  private targetX = AREA.cx;
-  private targetY = AREA.cy;
 
   private darkDiameter(): number {
     return this.cellBase * 4.6;
@@ -182,18 +191,22 @@ export class BoardView extends Container {
     return Math.max(this.boardPixW, this.boardPixH) * 1.55;
   }
 
-  setLights(on: boolean): void {
-    this.litTarget = on;
+  /** Set the desired light level: 0 = dark follow-pool, 1 = whole board. */
+  setLightLevel(level: number): void {
+    this.targetLevel = Math.max(0, Math.min(1, level));
   }
 
-  /** Animate the spotlight toward its target each frame. */
   tick(dtMs: number): void {
-    const k = Math.min(1, dtMs / 90); // smoothing
-    const targetDiam = this.litTarget ? this.litDiameter() : this.darkDiameter();
-    const tx = this.litTarget ? AREA.cx : this.targetX;
-    const ty = this.litTarget ? AREA.cy : this.targetY;
+    const k = Math.min(1, dtMs / 90);
+    this.curLevel += (this.targetLevel - this.curLevel) * k;
 
-    this.curDiam += (targetDiam - this.curDiam) * k;
+    const diam = this.darkDiameter() + (this.litDiameter() - this.darkDiameter()) * this.curLevel;
+    // Pool sits on the player when dark, drifts to board center as it floods.
+    const blend = smoothstep(this.curLevel);
+    const tx = this.playerScreenX + (AREA.cx - this.playerScreenX) * blend;
+    const ty = this.playerScreenY + (AREA.cy - this.playerScreenY) * blend;
+
+    this.curDiam += (diam - this.curDiam) * k;
     this.curX += (tx - this.curX) * k;
     this.curY += (ty - this.curY) * k;
 
@@ -202,15 +215,14 @@ export class BoardView extends Container {
     this.light.position.set(this.curX, this.curY);
   }
 
-  /** Swap in a new board (next level) and reset the spotlight on the player. */
   setBoard(board: Board): void {
     this.board = board;
     this.layout();
     this.buildTiles();
     const p = this.project(board.start.row, board.start.col);
-    this.curX = this.targetX = p.x;
-    this.curY = this.targetY = p.y;
-    this.litTarget = false;
+    this.curX = this.playerScreenX = p.x;
+    this.curY = this.playerScreenY = p.y;
+    this.curLevel = this.targetLevel = 0;
     this.curDiam = this.darkDiameter();
   }
 }

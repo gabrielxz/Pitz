@@ -53,7 +53,7 @@ export class MenuScene extends Scene {
     const bw = 320;
     const bx = STAGE_W / 2 - bw / 2;
     this.playButton("Play Classic", "One 15×15 board, 45 hidden pits, unlimited lights — the faithful 2007 game.", bx, 286, bw, "classic");
-    this.playButton("Play Modern", "Six escalating boards, a draining light battery, and a graded run.", bx, 392, bw, "modern");
+    this.playButton("Play Modern", "Seven boards that light up then fade — memorize fast, grab the beacon, reach the exit.", bx, 392, bw, "modern");
 
     // Secondary row.
     const sy = 500;

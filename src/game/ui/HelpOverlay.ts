@@ -21,7 +21,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Modern mode",
-    body: "Six boards that grow larger and pittier. Your lights run on a battery that drains while on and recharges while you move in the dark — so peek wisely. Your moves, time and peeks are graded at the end.",
+    body: "Seven boards that grow larger and pittier. There's no light switch — each board opens fully lit and fades to the spotlight over a few seconds, and there's no second look, so memorize fast (press Space to start early). You must reach the glowing beacon before the exit. Moves and time are graded at the end.",
   },
 ];
 

@@ -1,9 +1,7 @@
-// Run scoring (Modern). Rewards efficient routes: how close your move count
-// is to the shortest possible path across every level, with small nudges for
-// time and how many times you peeked at the lights.
+// Run scoring (Modern). Rewards efficient routes: how close your move count is
+// to the shortest legal path across every level (start -> beacon -> exit).
 
 import type { PitzGame } from "./engine";
-import type { RuleSet } from "./types";
 
 export type Grade = "S" | "A" | "B" | "C" | "D";
 
@@ -12,14 +10,8 @@ export interface Score {
   minMoves: number;
   efficiency: number; // minMoves / totalMoves, capped at 1
   timeMs: number;
-  peeks: number;
   grade: Grade;
   verdict: string;
-}
-
-/** Shortest possible move count: Manhattan corner-to-corner per level. */
-export function minMovesFor(rule: RuleSet): number {
-  return rule.levels.reduce((sum, l) => sum + (l.w - 1) + (l.h - 1), 0);
 }
 
 const VERDICTS: Record<Grade, string> = {
@@ -31,7 +23,7 @@ const VERDICTS: Record<Grade, string> = {
 };
 
 export function computeScore(game: PitzGame): Score {
-  const minMoves = minMovesFor(game.rule);
+  const minMoves = Math.max(game.minMovesTotal, 1);
   const totalMoves = Math.max(game.totalMoves, 1);
   const efficiency = Math.min(1, minMoves / totalMoves);
 
@@ -47,7 +39,6 @@ export function computeScore(game: PitzGame): Score {
     minMoves,
     efficiency,
     timeMs: game.elapsedMs,
-    peeks: game.peeks,
     grade,
     verdict: VERDICTS[grade],
   };

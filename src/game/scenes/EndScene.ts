@@ -9,6 +9,8 @@ import { GameScene } from "./GameScene";
 import { MenuScene } from "./MenuScene";
 
 export class EndScene extends Scene {
+  private keyHandler?: (e: KeyboardEvent) => void;
+
   constructor(game: Game, mode: ModeId, g: PitzGame) {
     super(game);
 
@@ -60,5 +62,23 @@ export class EndScene extends Scene {
     const menu = new TextButton("Menu", 220, 54, () => this.game.setScene(new MenuScene(this.game)));
     menu.position.set(STAGE_W / 2 + 10, 150 + nextY);
     this.addChild(menu);
+
+    const hint = new Text({ text: "— press Space to play again —", style: vary(styles.hudDim, { fontSize: 15 }) });
+    hint.anchor.set(0.5, 0);
+    hint.position.set(STAGE_W / 2, 150 + nextY + 76);
+    this.addChild(hint);
+
+    // Space / Enter = Play again, so you never have to leave the keyboard.
+    this.keyHandler = (e: KeyboardEvent) => {
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        this.game.setScene(new GameScene(this.game, mode));
+      }
+    };
+    window.addEventListener("keydown", this.keyHandler);
+  }
+
+  override dispose(): void {
+    if (this.keyHandler) window.removeEventListener("keydown", this.keyHandler);
   }
 }

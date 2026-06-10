@@ -132,7 +132,13 @@ export class GameScene extends Scene {
 
   private bindKeys(): void {
     this.keyHandler = (e: KeyboardEvent) => {
-      if (this.interstitial) return;
+      if (this.interstitial) {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          this.advance();
+        }
+        return;
+      }
       switch (e.key) {
         case "ArrowUp": case "w": case "W": this.tryMove("north"); break;
         case "ArrowDown": case "s": case "S": this.tryMove("south"); break;
@@ -205,6 +211,10 @@ export class GameScene extends Scene {
     const btn = new TextButton("Next level", 220, 54, () => this.advance(), true);
     btn.position.set(STAGE_W / 2 - 110, STAGE_H / 2 + 50);
     c.addChild(btn);
+    const hint = new Text({ text: "— or press Space —", style: vary(styles.hudDim, { fontSize: 15 }) });
+    hint.anchor.set(0.5);
+    hint.position.set(STAGE_W / 2, STAGE_H / 2 + 128);
+    c.addChild(hint);
     this.addChild(c);
     this.interstitial = c;
   }

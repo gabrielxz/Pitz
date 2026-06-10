@@ -1,0 +1,4 @@
+Added a splash screen.
+Added a player model - a stick figure modeled after Mr SquareHead.
+Added textures for the grass and pits.
+Put a title in the window title bar.
